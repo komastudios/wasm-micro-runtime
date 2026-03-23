@@ -1,0 +1,129 @@
+name: unity
+
+on:
+  push:
+    branches: ["unity"]
+  pull_request:
+    branches: ["unity"]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: ${{ matrix.shell || 'bash' }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "Linux x86_64"
+            artifact: "linux-x64"
+            os: ubuntu-22.04
+            cmake_source: product-mini/platforms/linux
+            flags: "-GNinja"
+          - name: "macOS arm64"
+            artifact: "macos-arm64"
+            os: macos-15
+            cmake_source: product-mini/platforms/darwin
+            xcode: '16.4'
+            flags: "-DCMAKE_OSX_ARCHITECTURES=arm64 -DWAMR_BUILD_TARGET=AARCH64"
+          - name: "macOS x86_64"
+            artifact: "macos-x64"
+            os: macos-15
+            cmake_source: product-mini/platforms/darwin
+            xcode: '16.4'
+            flags: "-DCMAKE_OSX_ARCHITECTURES=x86_64 -DWAMR_BUILD_TARGET=X86_64"
+          - name: "Windows x86_64"
+            artifact: "windows-x64"
+            os: windows-2022
+            cmake_source: product-mini/platforms/windows
+            shell: pwsh
+            flags: "-A x64"
+
+    steps:
+      - name: Setup Xcode
+        if: matrix.xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: ${{ matrix.xcode }}
+
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Configure CMake
+        run: >-
+          cmake -S ${{ matrix.cmake_source }} -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_SHARED_LIBS=ON
+          -DWAMR_BUILD_INTERP=1
+          -DWAMR_BUILD_AOT=1
+          -DWAMR_BUILD_JIT=0
+          -DWAMR_BUILD_LIBC_BUILTIN=1
+          -DWAMR_BUILD_FAST_INTERP=1
+          -DWAMR_BUILD_LIBC_WASI=0
+          -DWAMR_BUILD_SIMD=0
+          -DWAMR_BUILD_REF_TYPES=0
+          ${{ matrix.flags }}
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Install
+        run: cmake --install build --config Release --prefix dist
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist
+
+  macos-universal:
+    needs: build
+    runs-on: macos-15
+    name: "macOS universal"
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          name: macos-arm64
+          path: dist-arm64
+
+      - uses: actions/download-artifact@v6
+        with:
+          name: macos-x64
+          path: dist-x64
+
+      - name: Create universal binaries
+        run: |
+          mkdir -p dist/lib dist/include
+          for f in dist-arm64/lib/*.dylib dist-arm64/lib/*.a; do
+            [ -f "$f" ] || continue
+            base=$(basename "$f")
+            if [ -f "dist-x64/lib/$base" ]; then
+              lipo -create "$f" "dist-x64/lib/$base" -output "dist/lib/$base"
+              echo "lipo: $base"
+              lipo -info "dist/lib/$base"
+            else
+              cp "$f" "dist/lib/$base"
+              echo "copy (arm64 only): $base"
+            fi
+          done
+          cp -R dist-arm64/include/* dist/include/ 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: macos-universal
+          path: dist
