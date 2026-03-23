@@ -19,10 +19,13 @@ configure_file(
 )
 
 # Set the library version and SOVERSION
+option(WAMR_NO_SOVERSION "Disable VERSION/SOVERSION on shared libraries" OFF)
 function(set_version_info target)
-  set_target_properties(${target}
-    PROPERTIES
-      VERSION ${WAMR_VERSION_MAJOR}.${WAMR_VERSION_MINOR}.${WAMR_VERSION_PATCH}
-      SOVERSION ${WAMR_VERSION_MAJOR}
-)
+  if(NOT WAMR_NO_SOVERSION)
+    set_target_properties(${target}
+      PROPERTIES
+        VERSION ${WAMR_VERSION_MAJOR}.${WAMR_VERSION_MINOR}.${WAMR_VERSION_PATCH}
+        SOVERSION ${WAMR_VERSION_MAJOR}
+    )
+  endif()
 endfunction()

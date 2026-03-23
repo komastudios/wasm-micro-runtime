@@ -69,6 +69,7 @@ jobs:
           cmake -S ${{ matrix.cmake_source }} -B build
           -DCMAKE_BUILD_TYPE=Release
           -DBUILD_SHARED_LIBS=ON
+          -DWAMR_NO_SOVERSION=ON
           -DWAMR_BUILD_INTERP=1
           -DWAMR_BUILD_AOT=1
           -DWAMR_BUILD_JIT=0
